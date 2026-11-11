@@ -1,158 +1,105 @@
-﻿using Xunit;
-using Moq;
-using EncurtadorURLs.Services;
-using EncurtadorURLs.Data;
+﻿using EncurtadorURLs.Data;
 using EncurtadorURLs.Models;
 
 
-namespace EncurtadorURLs.Tests.Services;
+namespace EncurtadorURLs.Services;
 
 
 /// <summary>
-/// Testes unitários para UrlsService.CreateShortUrlAsync.
-/// FASE RED do TDD: estes testes foram escritos ANTES da implementação existir.
-/// Todos devem FALHAR neste momento — isso é o esperado e desejado.
+/// Interface para o serviço de URLs. Define as operações de negócio disponíveis.
 /// </summary>
-public class UrlsServiceTests
+public interface IUrlsService
 {
-    private readonly Mock<IUrlContext> _mockContext;
-    private readonly UrlsService _service;
+    Task<UrlItem> CreateShortUrlAsync(string originalUrl);
 
 
-    public UrlsServiceTests()
+    Task<UrlItem?> GetByIdAsync(Guid id);
+}
+
+
+/// <summary>
+/// Serviço de regras de negócio para gerenciamento de URLs encurtadas.
+/// </summary>
+public class UrlsService : IUrlsService
+{
+    private readonly IUrlContext _context;
+
+
+    private const int MaxShortCodeRetries = 5;
+    private const int MinShortCodeLength = 6;
+    private const int MaxShortCodeLength = 8;
+    private const string Base62Chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+
+    private readonly Random _random = new();
+
+
+    public UrlsService(IUrlContext context)
     {
-        _mockContext = new Mock<IUrlContext>();
-        _service = new UrlsService(_mockContext.Object);
+        _context = context ?? throw new ArgumentNullException(nameof(context));
     }
 
 
-    [Fact]
-    public async Task CreateShortUrlAsync_ComUrlValida_DeveRetornarUrlItemComShortCode()
+    /// <summary>
+    /// Cria um novo registro de URL encurtada.
+    /// </summary>
+    /// <remarks>
+    /// IMPLEMENTAÇÃO PENDENTE (fase RED do TDD) — será implementada na próxima aula.
+    /// </remarks>
+    public async Task<UrlItem> CreateShortUrlAsync(string originalUrl)
     {
-        // Arrange
-        var urlOriginal = "https://www.google.com";
-        _mockContext.Setup(c => c.ShortCodeExistsAsync(It.IsAny<string>()))
-            .ReturnsAsync(false);
+        if (string.IsNullOrWhiteSpace(originalUrl))
+            throw new ArgumentException("URL original não pode ser vazia.", nameof(originalUrl));
 
 
-        // Act
-        var resultado = await _service.CreateShortUrlAsync(urlOriginal);
+        if (!IsValidUrl(originalUrl))
+            throw new ArgumentException("URL original possui formato inválido. Deve iniciar com http:// ou https://", nameof(originalUrl));
 
 
-        // Assert
-        Assert.NotNull(resultado);
-        Assert.Equal(urlOriginal, resultado.OriginalUrl);
-        Assert.False(string.IsNullOrEmpty(resultado.ShortCode));
+        if (originalUrl.Length > 2048)
+            throw new ArgumentException("URL original não pode exceder 2048 caracteres.", nameof(originalUrl));
 
 
-        _mockContext.Verify(
-    c => c.AddAsync(It.IsAny<UrlItem>()),
-    Times.Once
-    );
-    }
-
-
-    [Fact]
-    public async Task CreateShortUrlAsync_ComUrlVazia_DeveLancarArgumentException()
-    {
-        // Act & Assert
-        await Assert.ThrowsAsync<ArgumentException>(
-            () => _service.CreateShortUrlAsync(string.Empty)
-        );
-    }
-
-
-    [Fact]
-    public async Task CreateShortUrlAsync_ComEsquemaInvalido_DeveLancarArgumentException()
-    {
-        // Act & Assert
-        await Assert.ThrowsAsync<ArgumentException>(
-            () => _service.CreateShortUrlAsync("ftp://arquivo-invalido.com")
-        );
-    }
-
-
-    [Fact]
-    public async Task CreateShortUrlAsync_ComUrlNula_DeveLancarArgumentException()
-    {
-        // Act & Assert
-        await Assert.ThrowsAsync<ArgumentException>(
-            () => _service.CreateShortUrlAsync(null)
-        );
-    }
-
-
-    [Fact]
-    public async Task CreateShortUrlAsync_ComUrlMuitoLonga_DeveLancarArgumentException()
-    {
-        // Arrange
-        var urlLonga = "https://exemplo.com/" + new string('a', 2100);
-
-
-        // Act & Assert
-        await Assert.ThrowsAsync<ArgumentException>(
-            () => _service.CreateShortUrlAsync(urlLonga)
-        );
-    }
-
-
-    [Fact]
-    public async Task GetUrlByIdAsync_ComGuidVazio_DeveLancarArgumentException()
-    {
-        // Act & Assert
-        await Assert.ThrowsAsync<ArgumentException>(
-            () => _service.GetUrlByIdAsync(Guid.Empty)
-        );
-    }
-
-
-    [Fact]
-    public async Task GetUrlByIdAsync_ComIdInexistente_DeveRetornarNull()
-    {
-        // Arrange
-        var id = Guid.NewGuid();
-
-
-        _mockContext.Setup(c => c.GetByIdAsync(id))
-            .ReturnsAsync((UrlItem?)null);
-
-
-        // Act
-        var resultado = await _service.GetUrlByIdAsync(id);
-
-
-        // Assert
-        Assert.Null(resultado);
-    }
-
-
-    [Fact]
-    public async Task GetUrlByIdAsync_ComIdExistente_DeveRetornarUrlItem()
-    {
-        // Arrange
-        var id = Guid.NewGuid();
-
-
-        var urlEsperada = new UrlItem
+        var shortCode = await GenerateUniqueShortCodeAsync();
+        var urlItem = new UrlItem
         {
-            Id = id,
-            OriginalUrl = "https://www.google.com",
-            ShortCode = "abc123"
+            Id = Guid.NewGuid(),
+            OriginalUrl = originalUrl,
+            ShortCode = shortCode,
+            CreatedAt = DateTimeOffset.UtcNow,
+            ClickCount = 0
         };
 
 
-        _mockContext.Setup(c => c.GetByIdAsync(id))
-            .ReturnsAsync(urlEsperada);
+        await _context.AddAsync(urlItem);
+        return urlItem;
+    }
+    public Task<UrlItem?> GetByIdAsync(Guid id)
+    {
+        throw new NotImplementedException();
+    }
+    public async Task<UrlItem> CreateShortUrlAsync(string originalUrl)
+    {
+        if (string.IsNullOrWhiteSpace(originalUrl))
+            throw new ArgumentException("URL original não pode ser vazia.", nameof(originalUrl));
 
+        if (!IsValidUrl(originalUrl))
+            throw new ArgumentException("URL original possui formato inválido. Deve iniciar com http:// ou https://", nameof(originalUrl));
 
-        // Act
-        var resultado = await _service.GetUrlByIdAsync(id);
+        if (originalUrl.Length > 2048)
+            throw new ArgumentException("URL original não pode exceder 2048 caracteres.", nameof(originalUrl));
 
+        var shortCode = await GenerateUniqueShortCodeAsync();
+        var urlItem = new UrlItem
+        {
+            Id = Guid.NewGuid(),
+            OriginalUrl = originalUrl,
+            ShortCode = shortCode,
+            CreatedAt = DateTimeOffset.UtcNow,
+            ClickCount = 0
+        };
 
-        // Assert
-        Assert.NotNull(resultado);
-        Assert.Equal(id, resultado.Id);
-        Assert.Equal(urlEsperada.OriginalUrl, resultado.OriginalUrl);
-        Assert.Equal(urlEsperada.ShortCode, resultado.ShortCode);
+        await _context.AddAsync(urlItem);
+        return urlItem;
     }
 }
